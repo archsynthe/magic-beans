@@ -1,5 +1,6 @@
 package com.archsynthe;
 
+import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -17,13 +18,41 @@ import static org.junit.Assert.*;
  */
 public class MagicBeansTest {
 
-    @Test
-    public void testKeyGen() {
+    private String mbHome = System.getenv("MB_HOME");
+
+    @Before
+    public void verifyHomeDirectorySet() {
 
         // Verify MB_HOME environment variable is set
-        String mbHome = System.getenv("MB_HOME");
         assertNotNull(mbHome);
         assertNotEquals("",mbHome);
+
+    }
+
+    @Test
+    public void testLoadConfigFile() {
+
+        MagicBeansConfig config = MagicBeans.loadConfig();
+        assertNotNull(config);
+        assertNotNull(config.getCompany());
+        assertNotNull(config.getDevopsBucketName());
+        assertNotNull(config.getDevopsEnvironmentTemplatePath());
+        assertNotNull(config.getDevopsGroupName());
+        assertNotNull(config.getDevopsPolicyName());
+        assertNotNull(config.getDevopsPrivateKeyfilePath());
+        assertNotNull(config.getDevopsPublicKeyfilePath());
+        assertNotNull(config.getDevopsRepositoryDescription());
+        assertNotNull(config.getDevopsRepositoryName());
+        assertNotNull(config.getDevopsStackName());
+        assertNotNull(config.getDevopsUserName());
+        assertNotNull(config.getHomePath());
+        assertNotNull(config.getProfile());
+        assertNotNull(config.getRegion());
+
+    }
+
+    @Test
+    public void testKeyGen() {
 
         // Create mock configuration file
         MagicBeansConfig config = new MagicBeansConfig();

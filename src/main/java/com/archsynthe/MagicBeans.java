@@ -68,7 +68,7 @@ public class MagicBeans {
 
     }
 
-    private static MagicBeansConfig loadConfig() {
+    static MagicBeansConfig loadConfig() {
 
         // Load path from environment
         String homePath = System.getenv("MB_HOME");

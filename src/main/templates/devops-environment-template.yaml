@@ -1,0 +1,58 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Magic Beans bootstrap template to create a devops repository and bucket
+Parameters:
+  repositoryName:
+    Type: String
+    Description: The name of the Devops CloudFormation Repository
+  repositoryDescription:
+    Type: String
+    Description: The description of the Devops CloudFormation Repository
+  devopsBucketName:
+    Type: String
+    Description: Name of the S3 Bucket used to store DevOps artifacts
+  devopsUserName:
+    Type: String
+    Description: Name of the DevOps user
+  devopsGroupName:
+    Type: String
+    Description: Name of the DevOps group
+Resources:
+  CloudFormationRepository:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Ref repositoryName
+      RepositoryDescription: !Ref repositoryDescription
+  DevopsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref devopsBucketName
+      VersioningConfiguration:
+        Status: Enabled
+  DevopsGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Ref devopsGroupName
+  DevopsUser:
+    Type: AWS::IAM::User
+    Properties:
+      Groups:
+        - !Ref devopsGroupName
+      UserName: !Ref devopsUserName
+  DevopsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Managed policy for DevOps group
+      Groups:
+        - !Ref devopsGroupName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              -
+                "*"
+            Resource:
+              -
+                "*"

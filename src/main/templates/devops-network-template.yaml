@@ -1,0 +1,270 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Network Stack
+Mappings:
+  BuildNetworkEnvironment:
+    public:
+      a: 10.0.0.0/26
+      b: 10.0.0.64/26
+    private:
+      a: 10.0.0.128/26
+      b: 10.0.0.192/26
+  QANetworkEnvironment:
+    public:
+      a: 10.0.1.0/26
+      b: 10.0.1.64/26
+    private:
+      a: 10.0.1.128/26
+      b: 10.0.1.192/26
+  DemoNetworkEnvironment:
+    public:
+      a: 10.0.2.0/26
+      b: 10.0.2.64/26
+    private:
+      a: 10.0.2.128/26
+      b: 10.0.2.192/26
+Resources:
+  DevelopmentVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: DevelopmentVpc
+  DmzSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.255.0/24
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: DmzSubnet
+  DmzNatEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  DmzNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt DmzNatEip.AllocationId
+      SubnetId: !Ref DmzSubnet
+    DependsOn:
+      - DmzNatEip
+      - DmzSubnet
+  DmzRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: DmzRouteTable
+  DmzIgw:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: DmzIgw
+  DmzVpcGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        InternetGatewayId: !Ref DmzIgw
+        VpcId: !Ref DevelopmentVpc
+      DependsOn:
+        - DmzIgw
+  DmzIgwRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DmzIgw
+      RouteTableId: !Ref DmzRouteTable
+    DependsOn:
+      - DmzIgw
+      - DmzVpcGatewayAttachment
+      - DmzRouteTable
+  DmzRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DmzRouteTable
+      SubnetId: !Ref DmzSubnet
+  BuildPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ BuildNetworkEnvironment, private, a ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: BuildPrivateSubnetA
+  BuildPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ BuildNetworkEnvironment, private, b ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", b ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: BuildPrivateSubnetB
+  QAPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ QANetworkEnvironment, private, a ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: QAPrivateSubnetA
+  QAPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ QANetworkEnvironment, private, b ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", b ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: QAPrivateSubnetB
+  DemoPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ DemoNetworkEnvironment, private, a ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: DemoPrivateSubnetA
+  DemoPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ DemoNetworkEnvironment, private, b ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", b ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: DemoPrivateSubnetB
+  BuildPublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ BuildNetworkEnvironment, public, a ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: BuildPublicSubnetA
+  BuildPublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ BuildNetworkEnvironment, public, b ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", b ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: BuildPublicSubnetB
+  QAPublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ QANetworkEnvironment, public, a ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: QAPublicSubnetA
+  QAPublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ QANetworkEnvironment, public, b ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", b ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: QAPublicSubnetB
+  DemoPublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ DemoNetworkEnvironment, public, a ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", a ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: DemoPublicSubnetA
+  DemoPublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !FindInMap [ DemoNetworkEnvironment, public, b ]
+      AvailabilityZone: !Join [ "", [ !Ref "AWS::Region", b ] ]
+      VpcId: !Ref DevelopmentVpc
+      Tags:
+        - Key: Name
+          Value: DemoPublicSubnetB
+Outputs:
+  DevelopmentVpc:
+    Description: ID for Development VPC
+    Value: !Ref DevelopmentVpc
+    Export:
+      Name: DevelopmentVpc
+  DmzSubnet:
+    Description: ID for DMZ subnet
+    Value: !Ref DmzSubnet
+    Export:
+      Name: DmzSubnet
+  BuildPrivateSubnetA:
+    Description: ID for Build private subnet A
+    Value: !Ref BuildPrivateSubnetA
+    Export:
+      Name: BuildPrivateSubnetA
+  BuildPrivateSubnetB:
+    Description: ID for Build private subnet B
+    Value: !Ref BuildPrivateSubnetB
+    Export:
+      Name: BuildPrivateSubnetB
+  QAPrivateSubnetA:
+    Description: ID for QA private subnet A
+    Value: !Ref QAPrivateSubnetA
+    Export:
+      Name: QAPrivateSubnetA
+  QAPrivateSubnetB:
+    Description: ID for QA private subnet B
+    Value: !Ref QAPrivateSubnetB
+    Export:
+      Name: QAPrivateSubnetB
+  DemoPrivateSubnetA:
+    Description: ID for Demo private subnet A
+    Value: !Ref DemoPrivateSubnetA
+    Export:
+      Name: DemoPrivateSubnetA
+  DemoPrivateSubnetB:
+    Description: ID for Demo private subnet B
+    Value: !Ref DemoPrivateSubnetB
+    Export:
+      Name: DemoPrivateSubnetB
+  BuildPublicSubnetA:
+    Description: ID for Build subnet A
+    Value: !Ref BuildPublicSubnetA
+    Export:
+      Name: BuildPublicSubnetA
+  BuildPublicSubnetB:
+    Description: ID for Build subnet B
+    Value: !Ref BuildPublicSubnetB
+    Export:
+      Name: BuildPublicSubnetB
+  QAPublicSubnetA:
+    Description: ID for QA subnet A
+    Value: !Ref QAPublicSubnetA
+    Export:
+      Name: QAPublicSubnetA
+  QAPublicSubnetB:
+    Description: ID for QA subnet B
+    Value: !Ref QAPublicSubnetB
+    Export:
+      Name: QAPublicSubnetB
+  DemoPublicSubnetA:
+    Description: ID for Demo subnet A
+    Value: !Ref DemoPublicSubnetA
+    Export:
+      Name: DemoPublicSubnetA
+  DemoPublicSubnetB:
+    Description: ID for Demo subnet B
+    Value: !Ref DemoPublicSubnetB
+    Export:
+      Name: DemoPublicSubnetB

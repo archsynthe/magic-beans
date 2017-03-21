@@ -18,7 +18,7 @@ import java.util.Set;
  * @version ${VERSION}
  * @since ${VERSION}
  */
-public class KeyManager {
+public class MagicBeansKeyManager {
 
     static UploadSSHPublicKeyResult uploadSSHKeyToUser(MagicBeansConfig config, AmazonIdentityManagement iam) {
 
@@ -29,6 +29,8 @@ public class KeyManager {
             String publicKey = new String(Files.readAllBytes(Paths.get(config.getDevopsPublicKeyfilePath())));
             uploadRequest.setSSHPublicKeyBody(publicKey);
             uploadResult = iam.uploadSSHPublicKey(uploadRequest);
+            config.setDevopsSSHPublicKeyId(uploadResult.getSSHPublicKey().getSSHPublicKeyId());
+            config.setDevopsRepositoryCloneUrl("ssh://" + config.getDevopsSSHPublicKeyId() + "@git-codecommit." + config.getRegion()+ ".amazonaws.com/v1/repos/" + config.getDevopsRepositoryName());
         } catch (IOException e) {
             e.printStackTrace();
         }

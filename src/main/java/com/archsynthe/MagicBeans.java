@@ -1,38 +1,20 @@
 package com.archsynthe;
 
-import com.amazonaws.auth.profile.ProfileCredentialsProvider;
-import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.cloudformation.AmazonCloudFormation;
-import com.amazonaws.services.cloudformation.AmazonCloudFormationClientBuilder;
 import com.amazonaws.services.cloudformation.model.*;
 import com.amazonaws.services.codecommit.AWSCodeCommit;
-import com.amazonaws.services.codecommit.AWSCodeCommitClientBuilder;
 import com.amazonaws.services.identitymanagement.AmazonIdentityManagement;
-import com.amazonaws.services.identitymanagement.AmazonIdentityManagementClientBuilder;
-import com.amazonaws.services.identitymanagement.model.*;
+import com.amazonaws.services.identitymanagement.model.GetUserRequest;
+import com.amazonaws.services.identitymanagement.model.GetUserResult;
+import com.amazonaws.services.identitymanagement.model.NoSuchEntityException;
+import com.amazonaws.services.identitymanagement.model.UploadSSHPublicKeyResult;
 import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.jcraft.jsch.JSch;
-import com.jcraft.jsch.JSchException;
-import com.jcraft.jsch.KeyPair;
-import com.jcraft.jsch.Session;
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.TransportConfigCallback;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.Repository;
-import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
-import org.eclipse.jgit.transport.*;
-import org.eclipse.jgit.util.FS;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
@@ -53,12 +35,12 @@ public class MagicBeans {
         MagicBeansConfig config = MagicBeansConfig.load();
 
         // Initialize services (as profile user)
-        AmazonCloudFormation cloudFormation = ServiceManager.initCloudFormation(config);
-        AmazonIdentityManagement iam = ServiceManager.initIAM(config);
+        AmazonCloudFormation cloudFormation = MagicBeansServiceManager.initCloudFormation(config);
+        AmazonIdentityManagement iam = MagicBeansServiceManager.initIAM(config);
 
         // Initialize services (as devops user)
-        AWSCodeCommit codeCommit = ServiceManager.initCodeCommit(config);
-        AmazonS3 amazonS3 = ServiceManager.initS3(config);
+        AWSCodeCommit codeCommit = MagicBeansServiceManager.initCodeCommit(config);
+        AmazonS3 amazonS3 = MagicBeansServiceManager.initS3(config);
 
         switch (args[0]) {
 
@@ -69,7 +51,7 @@ public class MagicBeans {
                 // Only proceed if we have a result
                 if (stackResult != null) {
 
-                    String keypairFingerprint = KeyManager.createSSHKey(config);
+                    String keypairFingerprint = MagicBeansKeyManager.createSSHKey(config);
                     if (keypairFingerprint != null) {
 
                         // Wait for stack creation
@@ -79,11 +61,20 @@ public class MagicBeans {
                         DevopsEnvironmentStackOutputs outputs = retrieveStackOutputs(config,cloudFormation);
 
                         // Upload public key
-                        UploadSSHPublicKeyResult uploadResult = KeyManager.uploadSSHKeyToUser(config, iam);
-                        outputs.setSshPublicKeyId(uploadResult.getSSHPublicKey().getSSHPublicKeyId());
+                        UploadSSHPublicKeyResult uploadResult = MagicBeansKeyManager.uploadSSHKeyToUser(config, iam);
+
+                        // Wait ten seconds
+                        // NOTE: We are waiting here because it takes a while for the uploaded key to be
+                        //       associated with the user, and there is no good way to poll for this
+                        //       with the current AWS APIs.  Redo this when the APIs get better
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
 
                         // Clone the CodeCommit repository
-                        cloneRepository(config, outputs);
+                        MagicBeansRepositoryManager.cloneRepository(config);
 
                     }
 
@@ -91,7 +82,7 @@ public class MagicBeans {
                 break;
 
             case "clean":
-                KeyManager.removeSSHKeysFromUser(config, iam);
+                MagicBeansKeyManager.removeSSHKeysFromUser(config, iam);
                 destroyDevOpsEnvironment(config, cloudFormation);
                 waitOnStackStatus(config,cloudFormation,StackStatus.DELETE_COMPLETE);
                 break;
@@ -100,37 +91,6 @@ public class MagicBeans {
 
 
         LOGGER.info("########## STOP RUN ##########");
-
-    }
-
-    static void cloneRepository(MagicBeansConfig config, DevopsEnvironmentStackOutputs outputs) {
-
-        SshSessionFactory sshSessionFactory = new JschConfigSessionFactory() {
-            @Override
-            protected void configure(OpenSshConfig.Host host, Session session ) {
-                // do nothing
-            }
-
-            @Override
-            protected JSch createDefaultJSch(FS fs) throws JSchException {
-                JSch defaultJSch = super.createDefaultJSch( fs );
-                defaultJSch.addIdentity( config.getDevopsPrivateKeyfilePath() );
-                return defaultJSch;
-            }
-        };
-
-        try {
-            Git git = Git.cloneRepository()
-                    .setURI( outputs.getRepositoryCloneUrl() )
-                    .setDirectory( Paths.get(config.getHomePath(), "repos", config.getDevopsRepositoryName()).toFile() )
-                    .setTransportConfigCallback(transport -> {
-                        SshTransport sshTransport = (SshTransport)transport;
-                        sshTransport.setSshSessionFactory( sshSessionFactory );
-                    })
-                    .call();
-        } catch (GitAPIException e) {
-            e.printStackTrace();
-        }
 
     }
 

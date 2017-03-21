@@ -31,12 +31,14 @@ class MagicBeansConfig {
     private String devopsGroupName;
     private String devopsUserName;
     private String devopsRepositoryName;
+    private String devopsRepositoryCloneUrl;
     private String devopsRepositoryDescription;
     private String devopsBucketName;
     private String devopsPrivateKeyfilePath;
     private String devopsPublicKeyfilePath;
     private String devopsAccessKeyId;
     private String devopsSecretAccessKey;
+    private String devopsSSHPublicKeyId;
 
     static MagicBeansConfig load() {
 

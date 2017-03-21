@@ -16,7 +16,7 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
  * @version ${VERSION}
  * @since ${VERSION}
  */
-public class ServiceManager {
+public class MagicBeansServiceManager {
 
     private static AwsClientBuilder initAwsBuilder(MagicBeansConfig config, AwsClientBuilder builder) {
         builder.setRegion(config.getRegion());

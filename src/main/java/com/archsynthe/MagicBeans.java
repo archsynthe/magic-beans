@@ -2,31 +2,38 @@ package com.archsynthe;
 
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
 import com.amazonaws.services.cloudformation.AmazonCloudFormation;
 import com.amazonaws.services.cloudformation.AmazonCloudFormationClientBuilder;
 import com.amazonaws.services.cloudformation.model.*;
 import com.amazonaws.services.codecommit.AWSCodeCommit;
-import com.amazonaws.services.codecommit.AWSCodeCommitClient;
 import com.amazonaws.services.codecommit.AWSCodeCommitClientBuilder;
+import com.amazonaws.services.identitymanagement.AmazonIdentityManagement;
+import com.amazonaws.services.identitymanagement.AmazonIdentityManagementClientBuilder;
+import com.amazonaws.services.identitymanagement.model.*;
 import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.KeyPair;
-import org.yaml.snakeyaml.Yaml;
+import com.jcraft.jsch.Session;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.TransportConfigCallback;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.*;
+import org.eclipse.jgit.util.FS;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
@@ -38,71 +45,168 @@ public class MagicBeans {
 
     private static final Logger LOGGER = Logger.getLogger(MagicBeans.class.getName());
 
-    private static final String AWS_REGION_CONFIG_PROPERTY = "awsRegion";
-    private static final String AWS_PROFILE_CONFIG_PROPERTY = "awsProfile";
-    private static final String COMPANY_CONFIG_PROPERTY = "company";
-
     public static void main(String[] args) {
 
         LOGGER.info("########## START RUN ##########");
 
         // Load configuration from file
-        MagicBeansConfig config = loadConfig();
+        MagicBeansConfig config = MagicBeansConfig.load();
 
-        // Initialize services
-        AWSCodeCommit codeCommit = initCodeCommit(config);
-        AmazonS3 amazonS3 = initS3(config);
-        AmazonCloudFormation cloudFormation = initCloudFormation(config);
+        // Initialize services (as profile user)
+        AmazonCloudFormation cloudFormation = ServiceManager.initCloudFormation(config);
+        AmazonIdentityManagement iam = ServiceManager.initIAM(config);
 
-        // Create DevOps Environment (root stack)
-        CreateStackResult stackResult = createDevOpsEnvironment(config, cloudFormation);
+        // Initialize services (as devops user)
+        AWSCodeCommit codeCommit = ServiceManager.initCodeCommit(config);
+        AmazonS3 amazonS3 = ServiceManager.initS3(config);
 
-        // Only proceed if we have a result
-        if (stackResult != null) {
+        switch (args[0]) {
 
-            createSSHKey(config);
+            case "create":
+                // Create DevOps Environment (root stack)
+                CreateStackResult stackResult = createDevOpsEnvironment(config, cloudFormation);
+
+                // Only proceed if we have a result
+                if (stackResult != null) {
+
+                    String keypairFingerprint = KeyManager.createSSHKey(config);
+                    if (keypairFingerprint != null) {
+
+                        // Wait for stack creation
+                        waitOnStackStatus(config,cloudFormation,StackStatus.CREATE_COMPLETE);
+
+                        // Retrieve stack outputs
+                        DevopsEnvironmentStackOutputs outputs = retrieveStackOutputs(config,cloudFormation);
+
+                        // Upload public key
+                        UploadSSHPublicKeyResult uploadResult = KeyManager.uploadSSHKeyToUser(config, iam);
+                        outputs.setSshPublicKeyId(uploadResult.getSSHPublicKey().getSSHPublicKeyId());
+
+                        // Clone the CodeCommit repository
+                        cloneRepository(config, outputs);
+
+                    }
+
+                }
+                break;
+
+            case "clean":
+                KeyManager.removeSSHKeysFromUser(config, iam);
+                destroyDevOpsEnvironment(config, cloudFormation);
+                waitOnStackStatus(config,cloudFormation,StackStatus.DELETE_COMPLETE);
+                break;
 
         }
+
 
         LOGGER.info("########## STOP RUN ##########");
 
     }
 
-    static MagicBeansConfig loadConfig() {
+    static void cloneRepository(MagicBeansConfig config, DevopsEnvironmentStackOutputs outputs) {
 
-        // Load path from environment
-        String homePath = System.getenv("MB_HOME");
+        SshSessionFactory sshSessionFactory = new JschConfigSessionFactory() {
+            @Override
+            protected void configure(OpenSshConfig.Host host, Session session ) {
+                // do nothing
+            }
 
-        MagicBeansConfig config = new MagicBeansConfig();
-        config.setHomePath(homePath);
-        try (InputStream is = new FileInputStream(homePath + "/conf/config.yaml")) {
+            @Override
+            protected JSch createDefaultJSch(FS fs) throws JSchException {
+                JSch defaultJSch = super.createDefaultJSch( fs );
+                defaultJSch.addIdentity( config.getDevopsPrivateKeyfilePath() );
+                return defaultJSch;
+            }
+        };
 
-            // Load configuration data from classpath resource
-            Yaml yaml = new Yaml();
-            Map map = (Map) yaml.load(is);
-
-            // Map data loaded from config file to configuration object
-            config.setRegion((String) map.get(AWS_REGION_CONFIG_PROPERTY));
-            config.setProfile((String) map.get(AWS_PROFILE_CONFIG_PROPERTY));
-            config.setCompany((String) map.get(COMPANY_CONFIG_PROPERTY));
-
-            // Map generated names back to config object
-            config.setDevopsEnvironmentTemplatePath(config.getCompany() + "/templates/devops-environment-template.yaml");
-            config.setDevopsStackName(config.getRegion() + "-" + config.getCompany() + "-devops-environment");
-            config.setDevopsRepositoryName(config.getRegion() + "-" + config.getCompany() + "-cloudformation");
-            config.setDevopsRepositoryDescription("CloudFormation Templates: " + config.getCompany());
-            config.setDevopsBucketName(config.getRegion() + "-" + config.getCompany() + "-devops-artifacts");
-            config.setDevopsPolicyName(config.getRegion() + "-" + config.getCompany() + "-devops-policy");
-            config.setDevopsGroupName(config.getRegion() + "-" + config.getCompany() + "-devops-group");
-            config.setDevopsUserName(config.getRegion() + "-" + config.getCompany() + "-devops-user");
-            config.setDevopsPrivateKeyfilePath(config.getHomePath() + "/keys/" + config.getDevopsUserName());
-            config.setDevopsPublicKeyfilePath(config.getDevopsPrivateKeyfilePath() + ".pub");
-
-        } catch (IOException e) {
+        try {
+            Git git = Git.cloneRepository()
+                    .setURI( outputs.getRepositoryCloneUrl() )
+                    .setDirectory( Paths.get(config.getHomePath(), "repos", config.getDevopsRepositoryName()).toFile() )
+                    .setTransportConfigCallback(transport -> {
+                        SshTransport sshTransport = (SshTransport)transport;
+                        sshTransport.setSshSessionFactory( sshSessionFactory );
+                    })
+                    .call();
+        } catch (GitAPIException e) {
             e.printStackTrace();
         }
 
-        return config;
+    }
+
+    static DevopsEnvironmentStackOutputs retrieveStackOutputs(MagicBeansConfig config, AmazonCloudFormation cloudFormation) {
+
+        DevopsEnvironmentStackOutputs outputs = new DevopsEnvironmentStackOutputs();
+        DescribeStacksRequest describeRequest = new DescribeStacksRequest();
+        describeRequest.setStackName(config.getDevopsStackName());
+        DescribeStacksResult describeResult = cloudFormation.describeStacks(describeRequest);
+        List<Output> rawOutputs = describeResult.getStacks().get(0).getOutputs();
+        for (Output rawOutput : rawOutputs) {
+            switch (rawOutput.getOutputKey()) {
+                case "UserAccessKeyId":
+                    outputs.setUserAccessKeyId(rawOutput.getOutputValue());
+                    break;
+                case "UserSecretAccessKey":
+                    outputs.setUserSecretAccessKey(rawOutput.getOutputValue());
+                    break;
+                case "RepositoryCloneUrl":
+                    outputs.setRepositoryCloneUrl(rawOutput.getOutputValue());
+                    break;
+                case "S3BucketUrl":
+                    outputs.setS3BucketUrl(rawOutput.getOutputValue());
+                    break;
+            }
+        }
+        return outputs;
+
+    }
+
+    static void waitOnStackStatus(MagicBeansConfig config, AmazonCloudFormation cloudFormation, StackStatus stackStatus) {
+
+        DescribeStacksRequest describeRequest = new DescribeStacksRequest();
+        describeRequest.setStackName(config.getDevopsStackName());
+        DescribeStacksResult describeResult = null;
+
+        int retries = 100;
+        int waitTime = 10;
+
+        while (waitTime > 0 && retries > 0) {
+            LOGGER.info("Waiting for Stack status: waitTime=" + waitTime + "s, retries=" + retries + ",status=" + stackStatus);
+
+            // Wait seconds
+            try {
+                TimeUnit.SECONDS.sleep(waitTime);
+            } catch (InterruptedException e) {
+                LOGGER.warning("Wait was interrupted...");
+            }
+
+            // Check for stack status
+            try {
+                describeResult = cloudFormation.describeStacks(describeRequest);
+                StackStatus actualStatus = StackStatus.fromValue(describeResult.getStacks().get(0).getStackStatus());
+                LOGGER.info("Stack Detected: stack=" + config.getDevopsStackName() + ",status=" + actualStatus);
+                if (actualStatus.equals(stackStatus)) {
+                    // Stack is in appropriate state, terminate loop
+                    waitTime = 0;
+                } else {
+                    LOGGER.warning("Waiting on Stack Status: stack=" + config.getDevopsStackName() + ",actualStatus=" + actualStatus + ",desiredStatus=" + stackStatus);
+                    waitTime = waitTime + 10;
+                    retries = retries - 1;
+                }
+            } catch (AmazonCloudFormationException e) {
+
+                if (StackStatus.DELETE_COMPLETE.equals(stackStatus)) {
+                    // If waiting on stack deletion, this exception is expected
+                    waitTime = 0;
+                } else {
+                    // If waiting for any other stack state, keep waiting
+                    LOGGER.warning("Waiting on Stack Status: stack=" + config.getDevopsStackName() + ",actualStatus=" + StackStatus.DELETE_COMPLETE + ",desiredStatus=" + stackStatus);
+                    waitTime = waitTime + 10;
+                    retries = retries - 1;
+                }
+            }
+        }
+
     }
 
     private static CreateStackResult createDevOpsEnvironment(MagicBeansConfig config, AmazonCloudFormation cloudFormation) {
@@ -181,48 +285,43 @@ public class MagicBeans {
 
     }
 
-    static String createSSHKey(MagicBeansConfig config) {
-        JSch jsch=new JSch();
+    static void destroyDevOpsEnvironment(MagicBeansConfig config, AmazonCloudFormation cloudFormation) {
+        DeleteStackRequest deleteRequest = new DeleteStackRequest();
+        deleteRequest.setStackName(config.getDevopsStackName());
+        cloudFormation.deleteStack(deleteRequest);
+    }
 
-        String keyFileName = config.getHomePath() + "/keys/" + config.getDevopsUserName();
-        String keyFingerprint = null;
-        KeyPair keyPair= null;
-        try {
-            keyPair = KeyPair.genKeyPair(jsch, KeyPair.RSA);
-            keyPair.writePrivateKey(keyFileName);
-            keyPair.writePublicKey(keyFileName + ".pub", config.getDevopsUserName());
-            keyFingerprint = keyPair.getFingerPrint();
-            keyPair.dispose();
-        } catch (JSchException | IOException e) {
-            e.printStackTrace();
+    static void waitOnDevOpsUserExists(MagicBeansConfig config, AmazonIdentityManagement iam) {
+
+        GetUserRequest getUserRequest = new GetUserRequest();
+        getUserRequest.setUserName(config.getDevopsUserName());
+        GetUserResult userResult = null;
+
+        int retries = 100;
+        int waitTime = 10;
+
+        while (waitTime > 0 && retries > 0) {
+            LOGGER.info("Waiting for DevOps user creation: waitTime=" + waitTime + "s, retries=" + retries);
+
+            // Wait ten seconds
+            try {
+                TimeUnit.SECONDS.sleep(waitTime);
+            } catch (InterruptedException e) {
+                LOGGER.warning("Wait was interrupted...");
+            }
+
+            // Check for user
+            try {
+                userResult = iam.getUser(getUserRequest);
+                LOGGER.info("DevOps User detected: " + config.getDevopsUserName());
+                waitTime = 0;
+            } catch (NoSuchEntityException e) {
+                LOGGER.warning("DevOps User doesn't exist: " + config.getDevopsUserName());
+                waitTime = waitTime + 10;
+                retries = retries - 1;
+            }
         }
 
-        return keyFingerprint;
-
-    }
-
-    private static AwsClientBuilder initAwsBuilder(MagicBeansConfig config, AwsClientBuilder builder) {
-        builder.setRegion(config.getRegion());
-        builder.setCredentials(new ProfileCredentialsProvider(config.getProfile()));
-        return builder;
-    }
-
-    private static AWSCodeCommit initCodeCommit(MagicBeansConfig config) {
-        AWSCodeCommitClientBuilder builder = AWSCodeCommitClientBuilder.standard();
-        initAwsBuilder(config, builder);
-        return builder.build();
-    }
-
-    private static AmazonS3 initS3(MagicBeansConfig config) {
-        AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
-        initAwsBuilder(config, builder);
-        return builder.build();
-    }
-
-    private static AmazonCloudFormation initCloudFormation(MagicBeansConfig config) {
-        AmazonCloudFormationClientBuilder builder = AmazonCloudFormationClientBuilder.standard();
-        initAwsBuilder(config, builder);
-        return builder.build();
     }
 
 }

@@ -1,5 +1,6 @@
 package com.archsynthe;
 
+import com.amazonaws.services.cloudformation.AmazonCloudFormation;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -19,6 +20,7 @@ import static org.junit.Assert.*;
 public class MagicBeansTest {
 
     private String mbHome = System.getenv("MB_HOME");
+    private MagicBeansConfig config;
 
     @Before
     public void verifyHomeDirectorySet() {
@@ -27,12 +29,8 @@ public class MagicBeansTest {
         assertNotNull(mbHome);
         assertNotEquals("",mbHome);
 
-    }
-
-    @Test
-    public void testLoadConfigFile() {
-
-        MagicBeansConfig config = MagicBeans.loadConfig();
+        // Load configuration file
+        config = MagicBeansConfig.load();
         assertNotNull(config);
         assertNotNull(config.getCompany());
         assertNotNull(config.getDevopsBucketName());
@@ -54,21 +52,39 @@ public class MagicBeansTest {
     @Test
     public void testKeyGen() {
 
-        // Create mock configuration file
-        MagicBeansConfig config = new MagicBeansConfig();
-        config.setHomePath(mbHome);
-        config.setDevopsUserName("us-east-2-magicbeans-devops-user");
-        config.setDevopsPrivateKeyfilePath(config.getHomePath() + "/keys/" + config.getDevopsUserName());
-        config.setDevopsPublicKeyfilePath(config.getDevopsPrivateKeyfilePath() + ".pub");
-
         // Generate keypair
-        String keyFingerprint = MagicBeans.createSSHKey(config);
+        String keyFingerprint = KeyManager.createSSHKey(config);
 
         // Validate keypair creation
         assertNotNull(keyFingerprint);
         assertEquals(47, keyFingerprint.length());
         assertTrue(Files.exists(Paths.get(config.getDevopsPrivateKeyfilePath())));
         assertTrue(Files.exists(Paths.get(config.getDevopsPublicKeyfilePath())));
+
+    }
+
+    @Test
+    public void testKeyUpload() {
+
+        // Assert keypair exists
+        assertTrue(Files.exists(Paths.get(config.getDevopsPrivateKeyfilePath())));
+        assertTrue(Files.exists(Paths.get(config.getDevopsPublicKeyfilePath())));
+
+        // TODO: Create IAM Mock
+        // TODO: Test actual method
+
+    }
+
+    @Test
+    public void testRetrieveStackOutputs() {
+
+        AmazonCloudFormation cloudFormation = ServiceManager.initCloudFormation(config);
+        DevopsEnvironmentStackOutputs outputs = MagicBeans.retrieveStackOutputs(config, cloudFormation);
+        assertNotNull(outputs);
+        assertNotNull(outputs.getRepositoryCloneUrl());
+        assertNotNull(outputs.getS3BucketUrl());
+        assertNotNull(outputs.getUserAccessKeyId());
+        assertNotNull(outputs.getUserSecretAccessKey());
 
     }
 

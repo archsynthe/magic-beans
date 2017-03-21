@@ -2,3 +2,4 @@
 awsRegion: us-east-2
 awsProfile: magicbeans
 company: magicbeans
+sshConfigFilePath: /Users/archsynthe/.ssh/config

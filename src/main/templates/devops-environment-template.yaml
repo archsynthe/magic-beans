@@ -18,7 +18,7 @@ Parameters:
     Type: String
     Description: Name of the DevOps group
 Resources:
-  CloudFormationRepository:
+  DevopsRepository:
     Type: AWS::CodeCommit::Repository
     Properties:
       RepositoryName: !Ref repositoryName
@@ -35,12 +35,14 @@ Resources:
       GroupName: !Ref devopsGroupName
   DevopsUser:
     Type: AWS::IAM::User
+    DependsOn: DevopsGroup
     Properties:
       Groups:
         - !Ref devopsGroupName
       UserName: !Ref devopsUserName
   DevopsPolicy:
     Type: AWS::IAM::ManagedPolicy
+    DependsOn: DevopsGroup
     Properties:
       Description: Managed policy for DevOps group
       Groups:
@@ -56,3 +58,24 @@ Resources:
             Resource:
               -
                 "*"
+  DevopsAccessKey:
+    Type: AWS::IAM::AccessKey
+    DependsOn: DevopsUser
+    Properties:
+      UserName: !Ref devopsUserName
+Outputs:
+  UserId:
+    Description: ID of the Devops User
+    Value: !Ref DevopsUser
+  UserAccessKeyId:
+    Description: Access Key ID of the Devops User
+    Value: !Ref DevopsAccessKey
+  UserSecretAccessKey:
+    Description: Secret Access Key of the Devops User
+    Value: !GetAtt DevopsAccessKey.SecretAccessKey
+  RepositoryCloneUrl:
+    Description: Repository Clone Url
+    Value: !GetAtt DevopsRepository.CloneUrlSsh
+  S3BucketUrl:
+    Description: Devops Artifact Bucket Url
+    Value: !GetAtt DevopsS3Bucket.WebsiteURL

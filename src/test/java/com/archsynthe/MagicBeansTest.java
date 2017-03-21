@@ -53,7 +53,7 @@ public class MagicBeansTest {
     public void testKeyGen() {
 
         // Generate keypair
-        String keyFingerprint = KeyManager.createSSHKey(config);
+        String keyFingerprint = MagicBeansKeyManager.createSSHKey(config);
 
         // Validate keypair creation
         assertNotNull(keyFingerprint);
@@ -78,7 +78,7 @@ public class MagicBeansTest {
     @Test
     public void testRetrieveStackOutputs() {
 
-        AmazonCloudFormation cloudFormation = ServiceManager.initCloudFormation(config);
+        AmazonCloudFormation cloudFormation = MagicBeansServiceManager.initCloudFormation(config);
         DevopsEnvironmentStackOutputs outputs = MagicBeans.retrieveStackOutputs(config, cloudFormation);
         assertNotNull(outputs);
         assertNotNull(outputs.getRepositoryCloneUrl());

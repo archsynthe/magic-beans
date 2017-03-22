@@ -45,8 +45,9 @@ public class MagicBeansRepositoryManagerTest {
 
     @Test
     public void testCloneRepository() {
-        config.setDevopsRepositoryCloneUrl("ssh://APKAJ35I4D7C6HR2ZWSQ@git-codecommit." + config.getRegion() + ".amazonaws.com/v1/repos/" + config.getDevopsRepositoryName());
+        config.setDevopsRepositoryCloneUrl("ssh://APKAITXRLXDYL3CEFUQQ@git-codecommit." + config.getRegion() + ".amazonaws.com/v1/repos/" + config.getDevopsRepositoryName());
         MagicBeansRepositoryManager.cloneRepository(config);
+        MagicBeansRepositoryManager.copySeedFiles(config);
     }
 
 }

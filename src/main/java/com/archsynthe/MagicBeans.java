@@ -76,6 +76,9 @@ public class MagicBeans {
                         // Clone the CodeCommit repository
                         MagicBeansRepositoryManager.cloneRepository(config);
 
+                        // Copy seed files into repository
+                        MagicBeansRepositoryManager.copySeedFiles(config);
+
                     }
 
                 }
